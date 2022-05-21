@@ -1,0 +1,261 @@
+---
+title: "Matching and weighting"
+author: "Will Lowe"
+date: "From an analysis originally prepared by Timon Forster"
+output: html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = "")
+```
+
+
+```{r, message = FALSE}
+# who needs 7 digits?
+options(digits = 3)
+
+library(tidyverse)
+theme_set(theme_minimal())
+
+# for matching
+library(MatchIt)
+library(fixest) # for fixed effect regression estimation
+```
+
+## The consequences of child soldiering
+
+In this problem we will analyze the data in `child_soldiering.csv` from Blattman and Annan's 2010 article 'The consequences of child soldiering'
+[link](https://www.chrisblattman.com/documents/research/2010.Consequences.RESTAT.pdf). The authors are interested in the impact of abduction by the Lord’s Resistance Army on political, economic, and psychological outcomes of children; the data are from a survey of male youth in war-affected regions of Uganda. We will focus on the effect of *abduction*, which appears in the data as `abd`, on years of *education*, `educ`. Other variables in the data are:
+
+* `C.ach`, `C.*`, etc.: sub-district identifiers
+
+* `age`: respondent’s age in years
+
+* `fthr.ed`: father’s education (years)
+
+* `mthr.ed`: mother’s education (years)
+
+* `orphan96`: indicator for whether parents died before 1997
+
+* `fthr.frm`: indicator for whether father is a farmer
+
+* `hh.size96`: household size in 1996
+
+Lets load the data 
+
+```{r}
+#setwd()
+sold <- read_csv("/Users/vishali/Desktop/childsoldiers/data/child_soldiering.csv")
+```
+
+
+Our gold standard is an RCT. If the 'treatment' (abduction) had been assigned randomly, we would not expect to see any differences in the covariates between the control and treatment group. But we are working with observational data, and do not necessarily expect this to be true. 
+
+We cannot *confirm* abductions occurred randomly or not, but we can gather gather evidence that is more consistent with random or non-random assignment if some covariates are available.
+
+First, lets make a combined variable for district from factor variables for each district
+
+```{r}
+dists <- c("ach", "akw", "ata", "kma", "oro", "pad", "paj", "pal")
+# make a factor variable out of all these dummies.
+sold$district <- factor(apply(sold[2:9], 1,function(x) which(x == 1)), labels = dists)
+```
+
+Check the covariate balance among the continuous variables and across districts. Essentially this means comparing the means across abduction groups for each of the continuous variables, and proportions across districts. (See code at the end)
+
+Is it balanced?
+
+## Run a naive model
+
+In the first part of the analysis, create a naive model (simple linear regression between education and abduction). Report the results. 
+
+## Matching
+
+Now we'll use the matchit function from the MatchIt package to look at exact matches. 
+
+Our target estimand here is be the ATT estimate, i.e. an estimate of the average effect of abduction on education 
+among those who were actually abducted.
+
+For interpreting the summary the help page for `summary.matchit` may be helpful
+
+```{r}
+model_exactmatch <- matchit(abd ~ age + fthr.ed + mthr.ed + fthr.frm + district,
+                     method = "exact", 
+                     data = sold)
+summary(model_exactmatch)
+```
+
+Of particular interest are which cases do not get matched. 
+
+Once we like the matches we get, we'll want to get a version of the data subsetted
+to only matched cases. Let's do that:
+```{r}
+data_exactmatch <- match.data(model_exactmatch)
+nrow(data_exactmatch) 
+```
+
+(Repeat this exercise by removing a few covariates and see how this changes.)
+
+Rerun the (now not so naive) model we had before, but with the new version of the data set
+
+What do the results tell you? Are these results different from the naive model that we did earlier?
+
+## Propensity scores
+
+In this section we'll try propensity scores instead. We'll specify a logistic 
+regression model to estimate them and make a plot that compares the distribution 
+of the propensity scores for the treated and untreated units (before matching).
+
+
+```{r}
+model_ps <- glm(abd ~ age + fthr.ed + mthr.ed + hh.size96 + district, 
+                family = binomial, data = sold)
+summary(model_ps)
+```
+
+Looks like being a year older raises the odds of being abducted by about 5%
+(That's 100*(exp(0.0503) - 1) for those unfamiliar with the joy that is interpreting 
+logistic regression coefficients.)
+
+Now that we understand the determinants of the treatment assignment, we want to plot the score to explore common support, i.e., check if there will be control-treatment pairs at every level of the propensity score.
+
+Remember that the estimated propensity scores are just the predicted probabilities from the model
+```{r}
+# Extract propensity scores
+p_scores <- predict(model_ps, type = "response")
+treat <- sold$abd
+
+# check models didn't toss any observation due to missingness
+length(p_scores) == length(treat)
+
+```
+
+Plot them.
+
+```{r}
+# line up the true treatment status and the p-scores 
+data_ps <- tibble(e = p_scores, abd = factor(treat))
+
+ggplot(data_ps, aes(e, fill = abd)) + 
+  geom_density(alpha = 0.5, color = NA) + 
+  xlim(0,1) +
+  labs(title = "Propensity score distribution",
+        x = "Propensity Score", y = "Density")
+```
+
+
+Now apply one-to-one matching on the propensity scores to estimate the ATT and plot the densities of the propensity scores for the treated and untreated units. We'll use nearest neighbour matching to deal with the sparseness. You should feel free to change the matching options and see what the consequences are.
+
+```{r}
+model_nearestmatch <- matchit(abd ~ age + fthr.ed + mthr.ed + hh.size96 + district,
+                     method = "nearest", distance = "logit",
+                     replace = TRUE, 
+                     ratio = 1, 
+                     data = sold)
+summary(model_nearestmatch)
+```
+
+Extract the new, matched dataset (data_match), and calculate the ATT as the difference in means (see previous section)
+
+Plot the propensity score distribution by treatment groups
+
+```{r}
+# Extract predicted probabilities
+data_match2 <- tibble(distance = data_match$distance,
+                      abd = data_match$abd)
+
+# Plot propensity scores by treatment group to explore common support
+data_match2 %>% 
+  ggplot(aes(x = distance, fill = factor(abd))) +
+  geom_density(alpha = 0.5, color = NA) +
+  xlim(c(0, 1)) +
+  labs(title = "Propensity score distribution",
+        x = "Propensity Score",
+        y = "Density")
+```
+
+At least the balance is better - though it's clearly not perfect still. 
+(the densities do not perfectly overlap)
+
+## Inverse probability weighting
+
+Now time for weighting. The IPW weights are defined as 
+
+- 1/e(abd=1) if the case was treated
+
+- 1/(1-e)(abd=0) if the case is in the control group
+
+
+```{r}
+psc <- glm(abd ~ age + fthr.ed + mthr.ed + fthr.frm + hh.size96 + district, 
+           data = sold, family = binomial)
+e <- predict(psc, type = "response")
+w <- ifelse(sold$abd == 1, 1/e, 1/(1 - e))
+```
+
+## Final Regression
+In the final regression, lets do everything together.  We'll use propensity score 
+weights *and* also fixed effects for district in a regression model.
+
+```{r}
+model_ipw <- feols(educ ~ abd + age + fthr.ed + mthr.ed + hh.size96 | district,
+                   weights = w, data = sold)
+summary(model_ipw)
+```
+What can you infer from this model?
+
+
+
+
+
+
+
+##Solutions
+
+Check Covariate Balance: 
+
+
+```{r}
+# Covariate balance in continuous variables
+summ <- sold %>% 
+  group_by(abd) %>% 
+  summarize(across(age:educ, mean)) %>% 
+  column_to_rownames("abd")
+t(summ)
+```
+and within sub-regions
+
+```{r}
+ctab <- table(district = sold$district, abd = sold$abd)
+prop.table(ctab, 1)
+```
+
+
+The first naive model is the difference of means, wrapped up as a linear regression
+
+```{r}
+model1 <- lm(educ ~ abd, data = sold)
+summary(model1)
+```
+
+ Rerun the model
+ 
+```{r}
+mod_matched <- lm(educ ~ abd, data = data_exactmatch)
+summary(mod_matched)
+confint(mod_matched, parm = "abd")
+```
+
+Extracting Matched Dataset and obtaining ATT
+
+```{r}
+data_match <- match.data(model_nearestmatch)
+mod_pm <- lm(educ ~ abd, data = data_match)
+summary(mod_pm)
+confint(mod_pm, "abd")
+```
+
+
+
+
+

@@ -1,0 +1,70 @@
+---
+title: "Lab 12"
+date: "10/05/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Hi! Welcome to the final lab. In this lab, let us do a short open ended simulation exercise.
+
+Context: 
+For international students, many programs offer a language camp in the weeks before students begin their graduate degrees, with the hope that it will help students be more prepared in some classes. You're interested in evaluating the effectiveness of a hypothetical language camp program. Does attending the camp cause higher grades in classes? This program is not randomized and it's not mandatory—anyone can decide to sign up (or not!), which means you have selection bias and confounding to worry about.
+
+You don't have any data for this, but that's okay! You are going to simulate some data and set up the infrastructure for answering this question.
+
+## Part 1: DAG
+
+For the sake of this example, we'll think about a DAG with just four nodes. Students' GRE scores and undergraduate GPAs confound both the choice to enroll in the camp and final class grades. Additionally, undergraduate degrees help cause GRE scores. Draw a DAG based on this. 
+
+## Part 2: Specify how these nodes are measured
+
+## Part 3: Specify the relationship between the nodes based on the DAG
+
+## Part 4: Generate data based on the DAG relationships
+
+## Part 5: Verify the relationships with plots and models
+
+## Part 6: Try it out!
+
+See if you can find the effect. Run two models:
+
+- `grade ~ camp`: This is the naive, unadjusted, correlation-is-not-causation estimate. It's wrong.
+- `grade ~ camp + gpa + gre`: This is the adjusted estimate. 
+
+(Also adjust for GPA and GRE with inverse probability weighting to see if the ATE for `camp` still holds. This is entirely optional.)
+
+## Example
+
+```{r}
+language_camp_dag <- dagify(grade ~ camp + gpa + gre,
+                        camp ~ gpa + gre,
+                        gre ~ gpa,
+                        outcome = "grade",
+                        exposure = "camp",
+                        coords = list(x = c(camp = 1, gpa = 2, gre = 3, grade = 4),
+                                      y = c(camp = 1, gpa = 2, gre = 2, grade = 1)))
+
+ggdag_status(language_camp_dag) +
+  theme_dag() +
+  guides(color = "none")  # Turn off legend
+```
+
+```{r}
+# 1. GPA is associated with GRE scores
+# 2. Camp (binary) is associated with undergraduate GPA and GRE scores. Calculate a camp score and then a camp binary variable from it. 
+# 3. Final grade is caused by language camp, undergraduate GPA, and GRE scores
+
+gpa <- rnorm(100, mean = 2.5,sd = 1.5)
+e_gre <- rnorm(100, mean = 5, sd = 5)
+gre <- 140 + gpa*10 + e_gre
+gre_r<-rescale(gre, to = c(100, 170))
+
+e_camp_score <- rnorm(100, mean= 50, sd= 20)
+camp_score <- e_camp_score + 5*gpa + gre_r/5
+camp_score_r <- rescale(camp_score, to = c(0, 100))
+
+```
+

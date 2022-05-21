@@ -1,0 +1,132 @@
+---
+title: "Lab11"
+author: "Vishali Sairam"
+date: "01/05/2022"
+output: html_document
+---
+
+Sensitivity Analysis and Omitted Variable Bias.
+
+
+Usually when we make causal inferences with observational data, we adjust for observed covariates and make the assumption that there are no unobserved confounders. Sensitivity analysis allows us to quantitatively discuss this. For today's lab, let's code the example we saw in class. 
+
+Context: 
+In Sudan’s western region of Darfur, a horrific campaign of violence against civilians began in
+2003, sustaining high levels of violence through 2004 and killing an estimated 200000 people
+(Flint and deWaal, 2008). We are interested in learning how being physically harmed during attacks in one’s village changed individual attitudes towards peace. Refer to Cinelli, C. and Hazlett, C. (2020) for more details. 
+
+
+```{r}
+install.packages("sensemakr") 
+library(sensemakr)
+library(tidyverse)
+```
+
+```{r}
+data("darfur")
+data <- darfur
+?darfur
+```
+
+#Part 1: Model
+
+Let's run the model: 
+
+The researcher may argue that adjusting for village and female is sufficient for control of confounding, and run the following linear regression model (in which other pre-treatment covariates, are also included).
+
+The “treatment” variable of interest is directlyharmed, which indicates whether the individual was physically injured or maimed during the attack on her or his village in Darfur. The main outcome of interest is peacefactor, an index measuring pro-peace attitudes. Other covariates in the data include: village (a factor variable indicating the original village of the respondent), female (a binary indicator of gender), age (in years), herder_dar (whether they were a herder in Darfur), farmer_dar (whether they were a farmer in Darfur), and past_voted (whether they report having voted in an earlier election, prior to the conflict). 
+
+
+What does the model say about the peace attitudes of those who were harmed during the violence?
+
+
+# Part 2 : OVB
+
+The previous estimate requires the assumption of no unobserved confounders for unbiasedness. While supported by the claim that there is no targeting of violence within village-gender strata, not all investigators may agree with this account. For example, one may argue that, although the bombing was crude, bombs were still more likely to hit the center of the village, and those in the center would also likely hold different attitudes towards peace. 
+
+But, centre is an unmeasured variable. 
+
+We can nevertheless ask questions such as “how strong would these unobserved confounders (or all remaining unobserved confounders) need to be to change our previous conclusions?” Or, more precisely, given an assumption on how strongly these and other omitted variables relate to the treatment and the outcome, how would including them have changed our inferences regarding the coefficient of directlyharmed?
+
+We use the sensemakr package can test such claims and also bound the strengths of unobserved variables.
+
+# Part 3 : Robustness Value and Partial R2
+
+The questions that we are interested in are:
+
+(a) How strong would a confounder (or group of confounders like centre) have to be to change
+our conclusions? Compute the Robustness Value. What does this value mean?
+
+(b) In a worst-case scenario, how vulnerable is our result to many or all unobserved confounders
+acting together, possibly non-linearly? 
+
+We use the partial r2 to estimate this value. What does the result mean?
+
+
+# Part 3: Making relative claims
+
+Are these confounders or scenarios plausible? How strong would they have to be to relative to observed covariates?
+
+```{r}
+darfur.sensitivity <- sensemakr(model = model, 
+                         treatment = "directlyharmed", # the treatment
+                         benchmark_covariates = "female", # covariates that could be used to bound
+                         kd = 1:3) # here we want to investigate the maximum strength of a confounder once,twice and three times as strong as female in explaining treatment and outcome variance
+summary(darfur.sensitivity)
+```
+
+This provides bounds on confounding as strong as female, R2Y∼Z|X,D = 12.5%, and R2D∼Z|X = 0.9%. Since both of those are below the RV, the table reveals that confounders as strong as female are not sufficient to explain away the observed estimate.
+
+In our application, one could argue that, given the nature of the attacks, it is hard to imagine that unobserved confounding could explain much more of targeting than what was explained by the observed variable female.
+
+# Part 4: Plots
+
+Part 1
+
+```{r}
+plot(darfur.sensitivity)
+```
+
+The horizontal axis shows the hypothetical residual share of variation of the treatment that unobserved confounding explains.
+
+The vertical axis shows the hypothetical partial R2 of unobserved confounding with the outcome.
+
+The contours show what would be the estimate for directlyharmed that one would have obtained in the full regression model including unobserved confounders.
+
+
+#Part 5 : Rerun the Model
+
+- Choose another treatment for the outcome peacefactor. Rerun the model with plausible pre-treatment covariates.
+- Conduct a sensitivity analysis for the model
+- Bound the sensitivity results using a plausible covariate.
+
+
+
+#Answers
+
+Part 1
+
+```{r}
+model <- lm(peacefactor ~ directlyharmed + age + farmer_dar + herder_dar +
+                         pastvoted + hhsize_darfur + female + village, data = darfur)
+```
+
+According to such a model, those who were directly harmed in violence were on average more “pro-peace”, not less.
+
+
+Part 3
+
+```{r}
+robustness_value(model, covariates = "directlyharmed")
+```
+
+The robustness value for bringing the point estimate of directlyharmed exactly to zero is 13.9% . This means that unobserved confounders that explain 13.9% of the residual variance both of the treatment and of the outcome are sufficiently strong to explain away all the observed effect. On the other hand, unobserved confounders that do not explain at least 13.9% of the residual variance both of the treatment and of the outcome are not sufficiently strong to do so.
+
+
+```{r}
+# partial R2 of directly harmed with peacefactor
+partial_r2(model, covariates = "directlyharmed")
+```
+
+The partial R2 of directlyharmed with peacefactor means that, in an extreme scenario, in which we assume that unobserved confounders explain all of the left out variance of the outcome, these unobserved confounders would need to explain at least 2.2% of the residual variance of the treatment to fully explain away the observed effect.
+

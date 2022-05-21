@@ -1,0 +1,298 @@
+---
+title: "Casual inference with ML models"
+author: "Will Lowe"
+date: "3/14/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = "")
+library(tidyverse)
+```
+
+
+## Example: The Electric Company
+
+This data set should be quite familiar to you from Week 03 lab. We studied the effect of a TV Show - [The Electric Company](https://en.wikipedia.org/wiki/The_Electric_Company) on children's reading ability.
+
+The dataset `electric-company.csv` in the `data` folder contains the following variables:
+
+-------------------------------------------------------------------------------
+ Name                 Description
+ -------------------- ---------------------------------------------------------
+ `pair`               The index of the treated and control pair (ignored
+                      here).
+ 
+ `city`               The city: Fresno ("F") or Youngstown ("Y")
+ 
+ `grade`              Grade (1 through 4) // Class 1 to 4
+ 
+ `supp`               Whether the program replaced ("R") or supplemented 
+                      ("S") a reading activity
+
+ `treatment`          "T" if the class was treated, "C" otherwise
+ 
+ `pre.score`          Class reading score *before* treatment, at the 
+                      beginning of the school year
+ 
+ `post.score`         Class reading score at the end of the school year
+-------------------------------------------------------------------------------
+
+Our variables of interest here are the reading scores (both pre and post), the grade (class) level and treatment status. 
+
+As a reminder, every observation is a class of students, which was either *treated*, if the program was shown to them, or *control* if the program was not shown as part of their studies. The outcome of interest, our 'dependent variable', is the class's average score on a reading test at the end of the year. We've called that `post.score`. Every observation in our data is a separate class, so no class got the treatment more than once.
+
+(For more details about the experiment check: 
+Cooney, Joan G. 1976. “The Electric Company: Television and Reading,1971-1980: A Mid-Experiment
+Appraisal.” New York: Children’s Television Network.)
+
+
+## Bayesian Adaptive Regression Trees!
+
+For this week, we'll fit a carefully specified linear model on this data and then compare it to BART or Bayesian Adaptive Regression Trees, which is a Bayesian twist on Random Forests, a Machine Learning Algorithm. Think of a lot of decision trees, drawn from a forest and cunningly averaged to generate predictions. 
+
+In keeping with our causal inference focus, we won't worry too much how they work inside, but rather concentrate on 
+
+- Their flexibility as regression estimators
+
+- Getting causal effects out of them
+
+You may need to install a couple of packages first. Remember to type these lines in the console so it happens only once. 
+```
+install.packages("BART")
+```
+We'll also use a nice package for getting marginal effects called `margins`
+```
+install.packages("margins")
+```
+Reminder: a marginal effect is the effect of a variable averaged over the 
+distribution of all the other ones. The effects you construct from regression 
+parameters 'are all else equal'. So you can think of the marginal effect
+as what you would expect the effect of treatment to be in a population 
+otherwise structured the way your sample is.
+
+Then load these with some good old tidyverse as usual
+```{r}
+library(tidyverse)
+library(BART) 
+library(margins)
+```
+
+In theory BART is more flexible than linear models so we might hope  it picks up all the interesting features we painstakingly found using linear modeling and domain knowledge.  (This is not a great strategy for life, but it'll do just fine for a lab).
+
+# Load the data
+
+Load the data and transform the treatment and grade (class) variables for convenience
+
+```{r, message = FALSE}
+electric <- read_csv("/Users/vishali/Desktop/causal inf/Session 6/week06/data/electric-company.csv")
+electric <- mutate(electric, 
+                   grade = factor(grade),
+                   treatment = ifelse(treatment == "T", 1, 0))
+```
+
+## Fit a linear model
+
+A decent, though improvable linear model of this study might be:
+```{r}
+mod_flm <- lm(post.score ~ treatment + grade + treatment:grade + pre.score,
+              data = electric)
+summary(mod_flm)
+```
+But we'll care more about the marginal effect summaries. Here's the marginal effect of treatment
+
+```{r}
+library(margins)
+margins(mod_flm, variables = "treatment")
+```
+and the conditional effects for each grade
+```{r}
+margins(mod_flm, variables = "treatment", 
+        at = list(grade = factor(c(1,2,3,4))))
+```
+That'll be our baseline. 
+
+## Fit a BART model
+
+BART, like many ML models just wants two thing: the input data and the 
+target variable to predict.
+
+We'll make the input data the same way as in the linear model 
+for comparability, so (numerical) dummy variables from grade, 
+and the rest as usual. One easy way to make such a matrix representation 
+of the data is to use R's built in function `model.matrix` (this is 
+what `lm` uses behind the scenes, but we can use it too)
+
+```{r}
+X <- model.matrix(~ treatment + city + grade + pre.score + supp - 1,
+                  data = electric)
+```
+This looks a bit like a formula based `lm` call (as it should) with a couple of 
+exception: 
+
+- There's no dependent variable.
+
+- There's no intercept (that's what -1 is doing in the formula)
+
+- There's no interactions (BART will have to find those)
+
+Not having an dependent variable is fine because BART wants that separately specified anyway. and we don't *need* an intercept for BART because it's made of lots of *trees*, not lots of linear models, and trees don't have constant terms.
+
+### Programming note
+
+For your future R pleasure, when an R formula is something like 
+`~ treatment` then that's short for `~ 1 + treatment` because R 
+knows you want an 
+intercept (try both in your next regression model if you're not sure). 
+So if we want to explicitly *remove* the intercept (usually a bad idea, but here 
+fine) then we can 'subtract' it, as in `~ treatment - 1`.
+
+## What we made
+Let's take a look 
+```{r}
+head(X)
+```
+That's a matrix, as the name suggests, but it will be more convenient 
+for us to have a copy as a data frame for later.
+```{r}
+dfX <- as_tibble(X)
+```
+
+## Results of fitting 
+```{r}
+library(BART)
+mod_bart <- wbart(X, electric$post.score) # wbart for continuous outcomes
+names(mod_bart)
+```
+What have we got here?
+
+- `yhat.train.mean` is the closest thing to fitted values we get from this model
+
+- `yhat.train` 1000 samples of values for each fitted value
+
+- `sigma` 1000 samples of values for each fitted conditional variances
+
+We will ignore the rest. You can read about them in the help pages.
+
+Let's start with `yhat.train` we immediately see that it is actually 
+a collection of samples. 
+```{r}
+dim(mod_bart$yhat.train)
+nrow(electric)
+```
+For each of the 192 observed post.scores, say the i-th, we get 1000 samples 
+from BART's idea of what 
+$$
+E(Y_i \mid \text{treatment}_i, \text{pre.score}_i, \text{grade}_, ...)
+$$
+is. Technically, the *posterior distribution* of this quantity. Think of that as due to 'parameter uncertainty'. For each of these 1000 samples we also get a conditional standard deviation `sigma`, so we can reconstruct
+all of $P(Y_i \mid \text{treatment}_i, \text{pre.score}_i, \text{grade}_, ...)$ 
+if we wanted to. Here, we won't.
+
+## Fitted values
+
+If we just wanted one prediction per data point, e.g. for plotting, then 
+we can average over all the samples
+```{r}
+av_yhat <- colMeans(mod_bart$yhat.train)
+```
+But because the BART developers know we probably want to do that, they've
+conveniently done it for us and put the results in `yhat.train.mean`
+```{r}
+# line them up and check
+head(cbind(av_yhat, mod_bart$yhat.train.mean))
+```
+
+## Using uncertainty estimates
+
+Having these samples makes it easy to answer statistical questions. For 
+example, here's the distribution of expected `post.score` for the 
+first class
+```{r}
+# predictions for class 1
+hist(mod_bart$yhat.train[,1], breaks = 60)
+```
+With samples representing uncertainty we can also do statistical *comparisons*.
+
+## Comparing linear and ML models
+
+It is illuminating to compare the predictions of model `mod_flm` that 
+we know fits reasonably and also has grade specific treatment effects 
+and the BART model we just fitted. 
+
+Do they agree on the fitted values?
+```{r}
+cor(fitted(mod_flm), mod_bart$yhat.train.mean)
+```
+Not perfectly, but rather well; `mod_bart` must have picked up a lot of the 
+same information as `mod_flm`
+
+And it's a bit more confident too
+```{r}
+# slightly unfair because we ignore prediction uncertainty
+# but BART fits in sample a bit better in Mean Squared Error terms
+mean((mod_bart$yhat.train.mean - electric$post.score)^2)
+mean((fitted(mod_flm) - electric$post.score)^2)
+```
+although perhaps that's overfitting. Without validation data it's hard to 
+tell whether BARTs internal regularization has worked. Probably it has.
+
+## Causal effects the long way (linear model edition)
+
+Let's construct the linear model's ATE, as described in the last slide of the lecture on Monday
+```{r}
+flm_Y1 <- predict(mod_flm, newdata = mutate(electric, treatment = 1))
+flm_Y0 <- predict(mod_flm, newdata = mutate(electric, treatment = 0))
+```
+Notice that the first model gets a version of the data set with everyone's 
+treatment variable set to 1 and the second with it set to 0. Think of this 
+process as constructing *all* the potential outcomes.
+
+Now, by definition the average treatment effect is the average of these
+```{r}
+mean(flm_Y1 - flm_Y0)
+```
+you can confirm that this is the same as the marginal effect of treatment
+above. Now for the grade specific effects:
+```{r}
+# ATEs for each grade from linear model
+mean(flm_Y1[electric$grade == 1] - flm_Y0[electric$grade == 1])
+mean(flm_Y1[electric$grade == 2] - flm_Y0[electric$grade == 2])
+mean(flm_Y1[electric$grade == 3] - flm_Y0[electric$grade == 3])
+mean(flm_Y1[electric$grade == 4] - flm_Y0[electric$grade == 4])
+```
+
+## Causal effects the long way (ML model edition)
+
+Now let's the same for the BART model
+```{r}
+bart_Y1 <- predict(mod_bart, as.matrix(mutate(dfX, treatment = 1)))
+bart_Y0 <- predict(mod_bart, as.matrix(mutate(dfX, treatment = 0)))
+
+dim(bart_Y1)
+```
+As before, these are 1000 by 192 matrices of posterior draws. Let's do the 
+averaging ourselves this time.
+```{r}
+bart_eff <- colMeans(bart_Y1 - bart_Y0)
+```
+these estimates of 'individual causal effects' at least according to 
+how BART sees the world. We'll ignore the uncertainty for now, although in 
+application we would care about such statistical matters.
+
+BART's idea of the average causal effect is not far off our linear model
+```{r}
+mean(bart_eff)
+```
+but what is perhaps more interesting is that it seems to have picked out the
+varying treatment effects by grade, without being told that such things might
+exist (like we had to tell the linear model)
+```{r}
+mean(bart_eff[electric$grade == 1])
+mean(bart_eff[electric$grade == 2])
+mean(bart_eff[electric$grade == 3])
+mean(bart_eff[electric$grade == 4])
+```
+Some disagreement about grade 4, apparently, but a decent match.
+
+

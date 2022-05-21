@@ -1,0 +1,154 @@
+---
+title: "Mediation  Analysis"
+author: " "
+date: "04/04/2022"
+output: html_document
+---
+Welcome to the Lab 8 Causal Inference on Mediation analysis. For this week we will use the "framing" dataset from the mediation package by Imai et al (2010).
+
+install.packages("mediation")
+
+The framing dataset uses data from a randomized experiment conducted by Brader et al (2008). In this experiment, subjects are exposed to different media stories about immigration. The authors investigated how their framing influences attitudes and political behavior regarding immigration policy. Thus, they posit anxiety as the mediating variable for the causal effect of framing on public opinion. In this example, the treatment is expected to increase the level of respondents’ emotional response, which in turn is hypothesized to make subjects more likely to send a letter to his or her member of Congress. 
+
+Read the dataset summary and identify:
+
+- Treatment variable
+- Outcome
+- Mediator
+- Possible pre-treatment covariates
+
+```{r}
+library("mediation")
+?framing # overview of dataset
+framing <- framing 
+```
+
+# Mediation Analysis
+
+The model-based causal mediation analysis proceeds in two steps. 
+
+We specify two statistical models, the mediator model for the conditional distribution of the mediator Mi given the treatment Ti and a set of the observed pre-treatment covariates Xi and the outcome model for the conditional distribution of the outcome Yi given Ti, Mi, and Xi. We then 
+
+- Fit a mediator model where the measure of anxiety (emo) is modeled as a function of the framing treatment and pre-treatment covariates. 
+
+- Fit a model with the outcome variable against the mediator, treatment and pre-treatment covariates. Since the outcome is binary, lets fit a probit model using the glm command with "family = binomial("probit")" in the code. 
+
+In the second part of the analysis, we specify the mediator model using the mediator package.  
+
+```{r}
+med.out <- mediate(med.fit, out.fit, treat = "treat", mediator = "emo",robustSE = TRUE, sims = 100)
+summary(med.out)
+```
+
+```{r}
+plot(med.out)
+```
+
+
+# Part 2: Modelling Treatment and Mediator Interaction
+It is possible that the ACME takes different values depending on the baseline treatment status.
+In this situation, we add an interaction term between the treatment and mediator to the outcome model. Then, the mediate function automatically detects the change in the specification and explicitly estimates the ACME conditional on treatment status. 
+
+Lets re-run the model with an interaction between mediator and treatment. 
+
+Use a t-test to examine if the mediator-treatment interaction is significant
+
+```{r}
+test.TMint(med.out, conf.level = .95)
+```
+
+
+# Part 3: Moderated Mediation
+
+The magnitude of the ACME may depend on a pre-treatment covariate. Such a pre-treatment covariate is called a moderator. In this example, the ACME may be much stronger among older respondents than younger ones. In other words, the ACME may be moderated by age.
+
+In order to include a moderator, lets create an interaction between treatment and moderator and between mediator and moderator in both the models and run it. 
+
+Find the mediation effects of those who are 60 years old and compare these effects to those who are 20 years. 
+
+Mediation effects at 60 years: med.age60 <- mediate(med.fit, out.fit, treat = "treat", mediator = "emo", covariates = list(age = 60), sims = 100)
+
+Or alternatively use a t-test to examine the difference. 
+```{r}
+med.init <- mediate(med.fit, out.fit, treat = "treat", mediator = "emo", sims=2)
+test.modmed(med.init, covariates.1 = list(age = 20), covariates.2 = list(age = 60), sims = 100)
+```
+
+
+# Part 4: Sensitivity Analysis 
+
+What is the sequential ignorability assumption?
+
+
+In our running example, after computing the ACME, we conduct a sensitivity analysis by passing the object from mediate to the medsens function. 
+
+We first choose as the sensitivity parameter the correlation ρ between the residuals of the mediator and outcome regressions (Imai et al. 2010a,c). If there exist unobserved pre-treatment confounders which affect both the mediator and the outcome, we expect that the sequential ignorability assumption is violated and ρ is no longer zero. The sensitivity analysis is conducted by varying the value of ρ and examining how the estimated ACME changes. 
+
+
+Re-run Part 1 of this exercise:
+
+```{r}
+sens.out <- medsens(med.out, rho.by = 0.1, effect.type = "indirect", sims = 2)
+summary(sens.out)
+```
+
+```{r}
+plot(sens.out, sens.par = "rho", main = "Anxiety", ylim = c(-0.2, 0.2))
+```
+
+
+Answers
+
+# Mediation
+
+
+```{r}
+med.fit <- lm(emo ~ treat + age + educ + gender + income, data = framing)
+```
+
+```{r}
+out.fit <- glm(cong_mesg ~ emo + treat + age + educ + gender + income, data = framing, family = binomial("probit"))
+```
+
+
+
+# Mediation Interaction
+
+```{r}
+med.fit <- lm(emo ~ treat + age + educ + gender + income, data=framing)
+```
+
+```{r}
+out.fit <- glm(cong_mesg ~ emo * treat + age + educ + gender + income,
+ data = framing, family = binomial("probit"))
+```
+
+```{r}
+med.out <- mediate(med.fit, out.fit, treat = "treat", mediator = "emo", robustSE = TRUE, sims = 100)
+```
+```{r}
+summary(med.out)
+```
+
+# Mediation Moderation
+
+```{r}
+med.fit <- lm(emo ~ treat * age + educ + gender + income, data=framing)
+summary(med.fit)
+```
+
+```{r}
+out.fit <- glm(cong_mesg ~ emo + treat*age + emo*age + educ + gender
++  income, data = framing, family = binomial("probit"))
+```
+
+# Sensitivity
+
+Sequential ignorability implies that, conditional on covariates, there is no unmeasured confounding of the treatment-mediator, treatment-outcome and mediator-outcome relationships
+
+```{r}
+med.fit <- lm(emo ~ treat + age + educ + gender + income, data = framing)
+out.fit <- glm(cong_mesg ~ emo + treat + age + educ + gender + income, data = framing, family = binomial("probit"))
+med.out <- mediate(med.fit, out.fit, treat = "treat", mediator = "emo", robustSE = TRUE, sims = 100)
+```
+

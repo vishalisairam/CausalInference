@@ -1,0 +1,203 @@
+---
+title: "Week 2 Lab"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In the following exercise, we test the relationship between having a private tutor and their mathematics scores. 
+
+```{r, include = FALSE}
+library(tidyverse)
+theme_set(theme_minimal())
+
+n <- 10000 # how many samples we'll typically take
+set.seed(12345)
+# data frame containing noise variables, which we will then use to create each of the actual variables
+ind <- data.frame(private_tutor_e = rnorm(n), 
+                  reading_writing_e = rnorm(n), 
+                  mathematics_e = rnorm(n))
+```
+
+## Create the data
+
+
+```{r}
+d <- data.frame(private_tutor_utility = -0.5 + ind$private_tutor_e) %>%
+  mutate(private_tutor = ifelse(private_tutor_utility > 0, 1, 0),
+         mathematics = 1 + private_tutor * 2 + ind$mathematics_e)
+```
+
+Note: The mechanism for deciding whether `private_tutor` should 
+be 1 or 0 is the one presumed by probit models, but there's nothing particularly 
+special about it. If you like to think about stochastic decision models then this 
+is a trivial example of one (normally the mean, here -0.5, would be a function
+of something more interesting, not just an intercept). In this style, 
+think of `private_tutor_utility` 
+as representing a large number of considerations influencing a 
+person's decision to take on a tutor. Since these considerations are personal, 
+and unobserved, they are represented by as one of the `_e` noise variables. 
+But this is all computational convenience really.
+
+OK, let's construct the *potential outcomes*
+```{r}
+d <- mutate(d,
+            mathematics_0 = 1 + 0 * 2  + ind$mathematics_e,
+            mathematics_1 = 1 + 1 * 2  + ind$mathematics_e)
+```
+
+Question: Are potential outcomes and the actual outcome independent of whether someone actually had a private tutor? Why?
+
+
+Answer: Value of private tutor is not used to construct either potential outcome. Thus, both potential outcomes are independent, and `mathematics` itself is not. 
+
+Put another way, `mathematics_1` depends on our stepping in to set `private_tutor` 
+to 1, regardless of the value it actually takes (or has perhaps already taken), plus
+some idiosyncratic information, summarized by `mathematics_e`, whereas 
+`mathematics` depends on that same idiosyncratic information, plus the observed value of
+`private_tutor`, regardless of how it got to have that value.
+
+```{r}
+cor(select(d, mathematics_0, mathematics_1, mathematics, private_tutor))
+```
+
+
+
+## Confounding time
+
+Now let's *confound* the relationship between `tutoring` and `mathematics` with reading_writing. It 
+will go like this:
+```
+reading_writing -> mathematics (negatively)
+reading_writing -> private_tutor (positively)
+private_tutor -> mathematics (positively) ESTIMAND
+```
+
+```{r}
+dfork <- data.frame(reading_writing = ind$reading_writing_e)
+dfork <- mutate(dfork,
+                private_tutor_utility = -0.5 + reading_writing * 0.5 + ind$private_tutor_e,
+                private_tutor = ifelse(private_tutor_utility > 0, 1, 0),
+                mathematics = 1 + private_tutor * 2 + reading_writing * (-1) + ind$mathematics_e)
+```
+
+
+We add our potential outcomes. These are constructed by constructing what 
+each individual would have as a mathematics score if they had a private tutor
+and then what they would have as a mathematics score if they did not.
+
+
+```{r}
+dfork <- mutate(dfork, ##           ↓
+                mathematics_0 = 1 + 0 * 2 + reading_writing * (-1) + ind$mathematics_e,
+                mathematics_1 = 1 + 1 * 2 + reading_writing * (-1) + ind$mathematics_e)
+```
+Notice, again, that these are not a function of `private_tutor`. The value of
+that variable is not used to construct either potential outcome.
+
+
+Question: Are potential outcomes in this case independent of whether someone actually had a private tutor?
+
+Answer: No. They are *not* independent. 
+```{r}
+cor(select(dfork, mathematics_0, mathematics_1, private_tutor))
+```
+
+
+Now let's condition on `reading_writing`. We'll do this twice: crudely, but 
+transparently by stratification, and then opaquely but efficiently with a linear model.
+Specifically, we'll stratify by the variable, and then run a tiny linear model on 
+the relationship between `mathematics` and `private_tutor`. We could also run a 
+bivariate correlation, but we'll do it with `lm` for comparability with the 
+less transparent but more efficient way.
+
+
+```{r}
+res_conf <- dfork %>%
+  mutate(rw_stratum = cut(reading_writing, breaks = seq(-3, 3, by = .3))) %>%
+  group_by(rw_stratum) %>%
+  summarise(cor0 = cor(mathematics_0, private_tutor),
+            cor1 = cor(mathematics_1, private_tutor),
+            cor = cor(mathematics, private_tutor), 
+            # fit a linear model and extract the coefficient on tutor
+            lm = coef(lm(mathematics ~ private_tutor, 
+                         data = cur_data()))[['private_tutor']],
+            n = n()) # how many observations? sparse estimates will be noisy! 
+
+res_conf <- na.omit(res_conf) # drop the 3-infinity upper range
+res_conf
+```
+Code notes: `cut` is a very useful R function for binning a continuous variable
+in to bins and labeling the bins. Here we have bins that are 0.3 wide from -3 to 3.
+
+```{r}
+ggplot(res_conf, aes(x = lm)) + 
+  geom_histogram(fill = "#DDCBA4") + 
+  geom_vline(xintercept = mean(res_conf$lm)) + 
+  geom_vline(xintercept = 2, linetype = "dashed", size = 1, color = "#BA0020")
+```
+
+## Optional statistical exercise
+
+The mean of these stratum estimates is, for mundane statistical reasons, a 
+little off. The sparsity is 
+controlled by how big the bins are: fuller (wider and more central) bins 
+give more precise estimates, but divide the variable more crudely. smaller 
+(narrower) bins give a better discrete approximation to the underlying variable
+but have fewer data points in them, so the estimates are noisier, if they even
+exist.
+
+* Try increasing the stratum size to 3. Note, this is equivalent to dichotomizing
+the variable into values above 0 and below 0. What happens to the average of the 
+stratum estimates in relation to the right answer?
+
+* Now try shrinking the stratum size to a value *below* 0.3. Note that sometimes
+the estimates won't exist; we remove them with `na.omit` and keep on truckin.
+What happens to the average of the 
+strtaum estimates in relation to the right answer?
+
+## OK, about that efficient way
+
+Let's do this with a linear model. We'll compare
+results for not controlling and controlling.
+```{r}
+lm(mathematics ~ private_tutor, dfork) %>% summary()
+
+lm(mathematics ~ private_tutor + reading_writing, dfork) %>% summary()
+```
+And there we are. Pretty close to 2, but only if you condition on reading and 
+writing.
+
+
+
+## Daggity model
+
+Let's recreate the model from last class
+
+- go to daggity  (http://www.dagitty.net/dags.html#)
+- input this model
+Code:
+dag {
+bb="0,0,1,1"
+E [pos="0.083,0.213"]
+G [pos="0.448,0.225"]
+L [outcome,pos="0.821,0.596"]
+P [pos="0.810,0.261"]
+W [exposure,pos="0.111,0.556"]
+E -> W
+G -> L
+G -> W
+P -> L
+W -> L
+}
+
+- Add a latent variable T which affects both treatment and outcome
+
+Question: How does the adjustment strategy change?
+
+- Now add variable Financial Status and identify how it could affect this model. How does the adjustment strategy change with each modification?
+
+
+
+

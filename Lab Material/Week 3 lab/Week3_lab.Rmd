@@ -1,0 +1,332 @@
+---
+title: "Week 3 lab"
+author: "Vishali Sairam"
+date: "21/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Hi! Welcome to Week 3 Lab. 
+
+In today's exercise, we're going to revisit the effect of a TV Show - [The Electric Company](https://en.wikipedia.org/wiki/The_Electric_Company) on children's reading ability.
+
+For more details about the experiment check: 
+Cooney, Joan G. 1976. “The Electric Company: Television and Reading,1971-1980: A Mid-Experiment
+Appraisal.” New York: Children’s Television Network.
+
+The dataset `electric-company.csv` in the `data` folder contains the following variables:
+
+-------------------------------------------------------------------------------
+ Name                 Description
+ -------------------- ---------------------------------------------------------
+ `pair`               The index of the treated and control pair (ignored
+                      here).
+ 
+ `city`               The city: Fresno ("F") or Youngstown ("Y")
+ 
+ `grade`              Grade (1 through 4)
+ 
+ `supp`               Whether the program replaced ("R") or supplemented 
+                      ("S") a reading activity
+
+ `treatment`          "T" if the class was treated, "C" otherwise
+ 
+ `pre.score`          Class reading score *before* treatment, at the 
+                      beginning of the school year
+ 
+ `post.score`         Class reading score at the end of the school year
+-------------------------------------------------------------------------------
+
+Our variables of interest here are the reading scores (both pre and post), the grade level and treatment status. 
+
+As a reminder, every observation is a class of students, which was either *treated*, if the program was shown to them, or *control* if the program was not shown as part of their studies. The outcome of interest, our 'dependent variable', is the class's average score on a reading test at the end of the year. We've called that `post.score`. Every observation in our data is a separate class, so no class got the treatment more than once.
+
+Read the data into an object named `electric`. 
+
+```{r}
+library(tidyverse)
+# setwd()
+electric <- read_csv("~/data/electric-company.csv")
+```
+
+
+## Question 1
+Fit a linear regression of reading score on grade. What sort of variable has R assumed grade is?  Under what circumstances would this be a reasonable modeling choice?
+
+## Question 2
+
+Adjust the model so that grade is treated as a nominal variable. (Hint: it will be helpful to make a new grade variable as a factor - maybe call it `grade.nom`) Now refit and interpret the regression.  What do each of the coefficients mean?
+
+## Question 3
+
+We now know that grade is a significant predictor of reading score. 
+
+Now let us consider the effect of treatment.
+
+First, fit a regression of post.score on just the treatment variable. 
+Second, fit a model that contains the treatment variable and your nominal version of grade.  
+
+## Question 4
+
+Let's start with the coefficient on treatment. Are the estimates for this coefficient *different* in the two 
+models? Are we more or less *certain* about the value of the coefficient in second model (with grade) compared to the first? Why do you think that is?  
+
+## Question 5
+
+The coefficients of the two models are almost same!
+
+When could this be true? What does this tell you about the experiment itself?
+
+## Question 6
+
+Now let us consider the effect of scores within each grade
+
+Fit a regression model for the effect of `treatment` on `post.score` for each 
+grade.  There are now *four* treatment effects.  
+
+How do they differ as grade increases? Are these ATEs?
+If so, which population are they ATEs for? What do we call ATEs for 
+specific values of pre-treatment variables?
+
+
+Note:
+What is the alternate way of estimating this in a single model? One way to do this is to *interact* treatment with grade. Here's a general modeling principle: 
+
+> If you think the *effect* of variable A varies according to the *values* of 
+> variable B, then you should think of *adding an interaction* between A and B in 
+> your model
+
+One way to fit this model is to use `A*B` to interact `A` and `B`. Since we 
+always want to have `A` and `B` if we have an `A:B` term, this notation makes 
+sure we don't forget any of them. So to fit the model above using this notation the formula is 
+```{r, eval = FALSE}
+Y ~ A * B 
+```
+which is the same model as before because `A * B` is exactly `A + B + A:B`.
+
+
+Now fit a model of all the grades that includes `pre.score`, 
+`treatment`, and `grade.nom`, and also interacts `treatment` and 
+`grade.nom`. Summarize the results.
+
+
+```{r, solution = TRUE}
+mod_inter <- lm(post.score ~ treatment * grade.nom + pre.score, data = electric)
+summary(mod_inter)
+```
+
+## Question 7
+
+Based on this, what could be the possible relationship between grades, reading scores and treatment?
+
+## Question 8
+
+Let's see what we might be missing in this model by examining the 
+*residuals* (estimated error terms for each class). Extract the 
+residuals from the model and plot them against the model's 
+*fitted* values, marking 0 with a horizontal line. 
+
+Hint: You can use the broom package's `augment` function to add these 
+model quantities to the original data as extra columns.
+
+
+```{r}
+library(broom)
+library(ggplot2)
+
+electric_inter <- augment(mod_inter)
+
+ggplot(electric_inter, aes(x = .fitted, y = .resid)) + 
+   geom_point() + 
+   geom_hline(yintercept = 0)
+```
+
+
+What pattern do you see?
+
+
+## Question 9
+
+Now let's investigate how this pattern of model prediction errors 
+might relate to *other* variables.
+First remake the plot in the previous question, but use different colors 
+for the different *grades*. Now remake the plot with *treated* 
+classes a different color from control classes.  
+
+
+```{r, solution = TRUE}
+ggplot(electric_inter, aes(x = .fitted, y = .resid, color = grade.nom)) + 
+   geom_point() + 
+   geom_hline(yintercept = 0) + 
+   labs(x = "Fitted", y = "Residual", 
+        color = "Grade", title = "Residuals by grade")
+```
+
+
+What do you conclude from these plots?
+
+
+## Question 10
+
+Let's take a look at the subset of data we've isolated as 
+badly predicted: grade 1. If you've used `augment` to add residuals 
+and predictions to the original data, just filter that object.
+
+1. plots `post.score` against `pre.score` 
+   and colors treated and untreated classes differently.
+2. overlays the model's fitted values using the same color scheme
+
+```{r, solution = TRUE}
+electric_g1 <- filter(electric_inter, grade.nom == "1")
+
+ggplot(electric_g1, aes(x = pre.score, y = post.score, color = treatment)) + 
+   geom_point() + 
+   geom_line(aes(x = pre.score, y = .fitted)) + # change the y value to another variable
+   labs(x = "Pre-score", y = "Post-score", 
+        color = "Treatment", title = "Pre-, post-scores, and predictions in Grade 1")
+
+```
+
+Choose another grade and make the same graph. What do you see?
+
+## Question 11
+
+Diagnose the problem uncovered by the previous graphs. 
+What can we do about it? 
+
+## Question 12
+
+In the context of this question, how are we implementing conditioning and blocking?
+
+## Optional
+
+Fit a model that interacts `treatment` with `grade.nom` *and also* `pre.score` with 
+`grade.nom`. (Hint: you will need to use `:` in your model specification.  
+Plot the residuals against the fitted values in this model 
+to confirm it no longer has the problems we examined above.
+
+Roughly speaking, what will `pre.score` be multiplied by in each grade? 
+(You should now be able to read this from the `summary`). Is this a better 
+model overall, statistically speaking?
+
+##Answers
+
+Answer 1 
+```{r}
+mod <- lm(post.score ~ grade, data = electric)
+summary(mod)
+```
+
+Numerically, R has assumed that the score is numeric. This will be sensible when the differences in score between grades are all about the same size. If they are not, then this decision will distort their true differences.
+
+Answer 2
+
+```{r, solution = TRUE}
+electric <- mutate(electric, grade.nom = as.factor(grade))
+
+mod <- lm(post.score ~ grade.nom, data = electric)
+summary(mod)
+```
+
+The intercept represents the expect score for grade 1. The remaining coefficients 
+represent the expected increase (or decrease) in score when considering a class 
+from a different grade. That is, every class will get 72.94 but grades 2-4 will 
+have that incremented by a different amount to construct their expected scores.
+
+
+Answer 3
+
+```{r, solution = TRUE}
+
+mod <- lm(post.score ~ treatment, data = electric)
+mod_grade <- lm(post.score ~ treatment + grade.nom, data = electric)
+
+summary(mod)
+summary(mod_grade)
+```
+
+Answer 4
+
+The coefficient estimates are identical, but we are more certain about the 
+value of the treatment coefficient in the second model. This is because the 
+second model is better at predicting the postscore, as shown by the 
+smaller residual standard error, because it includes grade as a predictor and 
+grade predicts post score quite well. With grade fixed effects it is now easier 
+to isolate the variation in post scores that is solely is due to treatment. 
+(Including more predictors of post score might narrow things down further.)
+
+Answer 5
+This is quite a rare thing in general, but it happens in 
+experiments when, unlike in observation data, two variables 
+are perfectly *independent* of each other. For example, the experimental 
+design of this study is to have equal number of classes in treatment and 
+in control within each grade. This makes the treatment indicator and 
+grade indicators independent.
+
+Answer 6
+
+```{r, solution = TRUE}
+mod1 <- lm(post.score ~ treatment, data = electric, subset = (grade == 1))
+mod2 <- lm(post.score ~ treatment, data = electric, subset = (grade == 2))
+mod3 <- lm(post.score ~ treatment, data = electric, subset = (grade == 3))
+mod4 <- lm(post.score ~ treatment, data = electric, subset = (grade == 4))
+
+summary(mod1)
+summary(mod2)
+summary(mod3)
+summary(mod4)
+```
+
+The effects appear large for the first two grades and negligible afterwards.
+They are ATEs but for classes in separate grades. We call these CATEs 
+because they are ATEs conditional on grade.
+
+
+Answer 7
+
+Probably something like this:  grades -> reading writing <- treatment
+
+Answer 8
+
+The higher the levels of predicted `post.score` the smaller the 
+residuals.
+
+Answer 9
+- It appears that the largest model residuals are in grade one classrooms.
+Apparently the model finds these hardest to predict correctly.
+
+- In contrast it appears that the model residuals are not larger for treatment 
+vs control.
+
+Answer 10
+
+In grade 1 the model's expected values are quite far from reality: the relationship between 
+pre- and post-scores is much steeper than the model thinks it is.
+
+Answer 11
+
+The problem is that the model fits a relationship that works for three out of the 
+four classes but cannot accommodate the different relationship between 
+pre- and post-score in grade 1. To accommodate this, we need a model that 
+can have a different relationship between these two variables in grade 1.
+One straightforward fix would be interact `grade.nom` with `pre.score` to get 
+grade-specific pre-score relationships.
+
+
+Answer 12
+Conditioning: when we control for grade.nom in regression
+Blocking: dividing population into grades
+
+Optional
+
+```{r, solution = TRUE}
+mod_inter2 <- lm(post.score ~ treatment +  grade.nom + pre.score + 
+                    treatment:grade.nom + grade.nom:pre.score, 
+                 data = electric)
+summary(mod_inter2)
+```
+
+

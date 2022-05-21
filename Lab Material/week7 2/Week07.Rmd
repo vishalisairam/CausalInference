@@ -1,0 +1,258 @@
+---
+title: "Week07"
+author: ""
+date: "28/03/2022"
+output: html_document
+---
+
+```{r}
+library(tibble)
+library(ggdag)
+library(ggplot2)
+```
+
+Hi! Welcome to Week 7 of Causal Inference Lab. The focus of this lab will be on understanding some common types of bias. 
+
+First, what do each of these mean? 
+
+A) Overcontrol bias
+B) Common cause Confounding
+C) Endogenous selection bias
+
+**Simulating Overcontrol bias**
+
+Demonstrate how post-treatment bias can diminish the estimated full effect of a normally distributed variable X (mean 0, sd 1) on Y . X is supposed to affect Y both directly and through mediator M. 
+
+Assume that the relationship between all variables is linear. To demonstrate, simulate the data-generating process using R. Then, show the bias by comparing the estimates of linear models, once with, once without controlling for M! Importantly, even though the mediator and the outcome are functions of X, they also have their own, independent, error. 
+
+```{r}
+data_m <- tibble(x = rnorm(1000), # mean = 0, sd = 1 by default
+em = rnorm(1000, 0, 0.5), # error term of mediator
+m = 0.8 * x + em,  # mediator as a fn of x and error
+ey = rnorm(1000, 0, 0.5), # error term of outcome
+y = x + m + ey) # outcome as a fn of x, m, and error
+head(data_m)
+```
+
+Let's also represent this in a DAG using ggdag:
+
+```{r}
+dag  <- dagify(y ~ x,
+               m ~ x,
+               y ~ m)
+ggdag(dag) +  theme_dag_blank()
+```
+
+- Plot the relationship between x and y.
+
+- Compare the results of two models - one controlling for the mediator and one without.
+
+
+**Confounding**
+
+Lets now create a simple confounding structure. We assume that Work Experience (exp) leads to lesser sleep. This relationship is confounded by Education. For the sake of simplicity, lets assume that the relationship between all variables is linear and they are normally distributed. 
+
+A. Lets create data for this. 
+
+```{r}
+data_sleep<- tibble(educ = rnorm(1000, 10, 2), # mean educ is 12y, sd = 2y
+               e_educ =  rnorm(1000,0,10), #error term of education, 
+               exp = educ/2 + rnorm(1000, mean = 10, sd = 5), # mean experience is 15y, sd = 5y
+                    e_exp = rnorm(1000,0,10),
+               sleep = 12 - (sqrt(exp+educ)))
+head(data_sleep)
+```
+
+B. Draw a DAG representing this.
+
+C. Generate two models (one accounting for the confounder and one without). Explain the difference between the two. 
+
+**Endogenous Selection Bias**
+
+Lets now create a simple collider structure. Lets introduce salary as a function of both education and experience.
+
+A) Thus, we first define these variables — experience and education are generated randomly; salary is a function of the two.
+
+B) Draw a DAG representing this collider structure.
+
+C) Plot education against experience. Does there seem to be a relationship between the two? 
+
+D) Now let's control for our collider by holding salary constant ‘around’ the mean.  
+
+What can you understand about endogenous selection bias from this?
+
+
+**Some types of Endogenous Selection Bias**
+
+Identify the types of endogenous selection bias in these examples. Represent each of these using a DAG. What is the collider and how will it affect the result? 
+
+A. We want to measure the effect of education (E) on income (I). In order to study this, we explore two possibilities:
+  1. Truncate our data to those earning below $60K per month. 
+  2. Send  out a call for participation for those who want to participate in a survey and study the respondents (R)
+
+B. We do a longitudinal panel study to understand effect of education (E) on mental health (M). The study experiences attrition (dropping out) over time (C). We find that those with more education are more likely to drop out of the study. Another factor (U), lets say participation in extracurricular activities, also leads to attrition and at the same time affects mental health. 
+
+C. We want to find the effect of schooling (S) on income (I). But we also know that those with individuals with a higher tendency to learn (U) are likely to be in schools. 
+
+- Lets suppose that test score (Q) is a proxy to U. What does this graph tell us?
+- Lets also suppose that the test can only be conducted in schools. 
+
+D. Lets assume you wanted to understand the gender balance in your neighborhood. You do this by taking a sample of 1,000 women at your women-only college and asking them how many male and female children are in their family. 
+
+
+
+**Answers**
+
+Overcontrol Bias: Conditioning on a variable on a causal path from treatment to outcome induces overcontrol bias.
+
+Common Cause Confounding: Confounding is a bias due to the existence of a common cause of exposure and outcome, which, by definition, occurs temporally prior to both exposure and outcome.
+
+Endogenous selection Bias:  Conditioning on the common outcome of two variables (i.e., a collider) induces a spurious association between them. We call this phenomenon endogenous selection bias.
+
+
+**Post-treatment Bias**
+
+
+summary(lm(y ~ x, data = data_m))
+
+
+
+summary(lm(y ~ x + m, data = data_m))
+
+
+**Confounding**
+B. 
+```{r}
+dag  <- dagify(sleep ~ edu,
+               exp ~ edu,
+               sleep ~ exp)
+ggdag(dag) +  theme_dag_blank()
+```
+
+C. 
+```{r}
+summary(lm(sleep ~ exp, data = data_sleep))
+```
+
+```{r}
+summary(lm(sleep ~ exp + educ, data = data_sleep))
+```
+
+
+**Selection Bias**
+
+```{r}
+data_labor <- tibble(exp = rnorm(1000, mean = 15, sd = 5), # mean experience is 15y, sd = 5y
+                    e_exp = rnorm(1000,0,10), #error term of exp
+               educ = rnorm(1000, 12, 2), # mean educ is 12y, sd = 2y
+               e_educ =  rnorm(1000,0,10), #error term of education
+               salary = 20000 + 100 * (exp * educ)) # 20k base salary, + 100 times product of educ and exp
+head(data_labor)
+```
+
+
+```{r}
+labor <- collider_triangle(x = "Education",
+                           y = "Experience",
+                           m = "Salary")
+
+ggdag(labor, text = FALSE, use_labels = "label") +
+  theme_dag_blank()
+```
+
+
+```{r}
+data_labor %>% 
+  ggplot(aes(x = exp, y = educ)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  xlab("Experience") +
+  ylab("Education")
+```
+
+As expected, there does not seem to be any relationship between the two. They are independent.
+
+```{r}
+plot_label <- as.character("Salary at mean (\u03BC) \u00B1 1000")
+
+data_labor %>% 
+  filter(salary >= 37000 & salary <= 39000) %>% 
+  ggplot(aes(x = exp, y = educ)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  xlab("Experience") +
+  ylab("Education") +
+  annotate("text", x = 20, y = 14, label = plot_label)
+```
+
+
+**Types of Bias:**
+
+A) 
+
+1. Truncation Bias
+
+```{r}
+dag = dagify(I ~ E,
+               I ~ U)
+ggdag_dseparated(dag, from = "U", to = "E", controlling_for = "I") +  theme_dag_blank()
+```
+
+2. Nonresponse Bias
+
+```{r}
+dag = dagify(R ~ I,
+               R ~ E,
+             I ~ E)
+ggdag_dseparated(dag, from = "E", to = "I", controlling_for = "R") +  theme_dag_blank()
+```
+
+B. Attrition Bias
+
+```{r}
+dag = dagify(M ~ E,
+             C ~ E)
+ggdag(dag) +  theme_dag_blank()
+```
+
+```{r}
+dag = dagify(M ~ E,
+               M ~ U,
+             C ~ E,
+             C ~ U)
+ggdag_dseparated(dag, from = "E", to = "U", controlling_for = "C") +  theme_dag_blank()
+```
+
+C. Bias due to using Proxy.
+
+1
+```{r}
+dag = dagify(I ~ S,
+             S ~ U,
+             Q ~ U)
+ggdag(dag) +  theme_dag_blank()
+```
+
+2
+```{r}
+dag = dagify(I ~ S,
+             S ~ U,
+             Q ~ U,
+             Q ~ S)
+ggdag_dseparated(dag, from = "U", to = "S", controlling_for = "Q") +  theme_dag_blank()
+```
+
+
+D. Ascertainment Bias. The result of this survey will show a heavy bias towards women, because of the simple fact that all the women have at least one female (themselves) in their family. The survey excludes any family where there are only male children. Although this is an extreme example, having uneven numbers (i.e. 400 women and 600 men) will still introduce bias into your results.
+
+```{r}
+dag = dagify(S ~ W,
+             F ~ W,
+             S ~ F)
+ggdag_dseparated(dag, from = "W", to = "F", controlling_for = "S") +  theme_dag_blank()
+```
+
+
+
+

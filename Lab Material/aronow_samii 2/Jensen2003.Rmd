@@ -1,0 +1,185 @@
+---
+title: "Democracy and FDI"
+author: "Causal inference: Lab 4"
+date: "2/28/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = "")
+```
+
+## Jensen 2003
+
+Slide here
+
+
+Refer to the slide 13 from last weeks session. 
+
+
+We are replicating the Jensen study from the session. The focus of this study is to understand the effect of democracy on Foreign Direct Investment. 
+
+In the simplified version of the analysis, we want to use this example to understand weighting in regression. 
+
+```{r}
+library(foreign)
+library(tidyverse)
+```
+
+First load the data 
+```{r}
+jensen.cc <- read.dta("/Users/vishali/Desktop/causal inf/Session 4/Lab/aronow_samii/jensen-rep.dta")
+```
+
+
+The outcome measure Jensen uses here is called `Fvar5` (FDI inflows as percentage of GDP) and the causal variable of interest is `regime' (continuous variable from 1 (authoritarian) to 20 (democratic)). 
+
+Take a quick look at regime and FDI. 
+
+What can you infer from this?
+
+```{r}
+hist(jensen.cc$regime)
+```
+
+```{r}
+hist(jensen.cc$Fvar5, 60)
+```
+
+```{r}
+summary(jensen.cc$Fvar5)
+```
+
+
+
+For our purposes we won't delve into the controls. The details of all of these can 
+be found in the paper. We also won't do the full elaborate analysis here, as 
+the basic points about fixed effects and weighting can be made without it.
+
+Time to fit three models. We'll construct the formulas from a vector of variable
+names because we're lazy. (Actually you're not, but I am)
+```{r}
+X.vars <- c("var5", "market",	"lgdppc",	"gdpgrowt",	"tradeofg",
+				    "overallb",	"generalg",	"country", "d2", "d3") # these are the controls
+
+# for predicting Fvar5 from the controls and regime
+mod_f <- reformulate(c("regime", X.vars), response = "Fvar5")
+mod_f
+
+# for predicting regime from the controls
+regime_mod_f <- reformulate(X.vars, response = "regime")
+regime_mod_f
+
+# for predicting Fvar5 from the controls
+fdi_mod_f <- reformulate(X.vars, response = "Fvar5")
+fdi_mod_f
+```
+and fit the models
+```{r}
+mod <- lm(mod_f, data = jensen.cc)
+mod_regime <- lm(regime_mod_f, data = jensen.cc)
+mod_fdi <- lm(fdi_mod_f, data = jensen.cc)
+```
+
+```{r}
+#summary(mod)
+#summary(mod_regime)
+#summary(mod_fdi)
+```
+
+
+What do the results of mod tell you about effect of regime on FDI? What can you tell about the size of the effect?
+
+```{r}
+coef(mod)
+```
+
+a quick summary of `mod` suggests that a one unit increase in regime is associated with 
+0.02108 more of Fvar5.
+
+```{r}
+sd(jensen.cc$Fvar5)
+```
+so this would be pretty substantively small as an effect.
+
+
+
+FWL (Frische, Waugh and Lovell) suggest that we should be able to reconstruct that via the two other models. How would you go about this? 
+
+
+```{r}
+res_regime <- resid(mod_regime)
+res_fdi <- resid(mod_fdi)
+lm(res_fdi ~ res_regime -1) # -1 means: leave out the intercept
+```
+
+
+
+How do we relate this to heterogeneous treatment effects? 
+
+Lets go back to the weighting business. Let's make those weights and add them to the data set.
+
+```{r}
+jensen.cc <- mutate(jensen.cc, 
+                    w = res_regime^2) 
+```
+
+
+Now, who gets the highest weights? We'll average the weights for observations
+from each country in all of its observations (in different years)
+```{r}
+jensen.country <- summarise(group_by(jensen.cc, country),
+                            mean_w = mean(w))
+```
+
+And we can look at the *least* influential countries in our ATE:
+```{r}
+jc <- arrange(jensen.country, mean_w)
+head(jc)
+```
+and *most* influential:
+```{r}
+tail(jc)
+```
+
+
+If you want to get an idea bout why these are influential it's easy to plot them,
+as we did in the lecture
+
+
+```{r}
+ggplot(filter(jensen.cc, country == "Uruguay"), 
+       aes(regime, Fvar5)) + 
+  geom_point() 
+```
+You can swap your own country names in there. Here's Germany
+```{r}
+ggplot(filter(jensen.cc, country == "Germany"), 
+       aes(regime, Fvar5)) + 
+  geom_point() 
+```
+and, not quite so extreme, Madagascar
+```{r}
+ggplot(filter(jensen.cc, country == "Madagascar"), 
+       aes(regime, Fvar5)) + 
+  geom_point() 
+```
+a sudden lurch in regime and variation in Fvar5 (in the opposite direction to the 
+hypothesis, I note) means that this country's data 'matters more' to the final 
+coefficient value than somewhere like Germany does.
+
+# Part 2
+
+Question 2:
+Does controlling for "Z" in the following variables lead to bias reduction or amplification or an increase in precision?
+
+X is the treatment and Y is the outcome
+
+A) X <- Z -> M -> Y
+
+B) X -> Y <- Z <- T
+
+C) X -> R -> Y -> Z 
+
+D) X -> Z -> R -> Y
+

@@ -1,0 +1,154 @@
+---
+title: "lab10"
+date: "23/04/2022"
+output: html_document
+---
+
+In the class on Monday, we went through a case study on racial bias in policing. We studied the effect of race on police arrests and use of force. In today's lab, lets look at some related estimands and understand how they relate to the naive estimate. This exercise is based on a blog by Macartan Humphreys on discrimination estimands. 
+
+Let's start by simulating a dataset for this. Let's create a population with 10 people (5 from each group/race): 
+
+A. There are equal number of people in each group
+B. They have a similar distribution of suspicion levels (from 0 to 4)
+
+```{r}
+library(dplyr)
+library(kableExtra)
+library(knitr)
+```
+
+```{r}
+data = data.frame(person = rep(1:10, each = 1), suspicion = rep(0:4, each = 2), group = rep(rep(0:1), times = 5))
+data
+```
+
+
+The key idea is that person 1 is to person 2 except for race We think of discrimination as the differences in outcomes for person 1 and person 2. 
+
+# Part 2: Stopping rules
+
+1) Add new variable denoting  "stopping"  to the dataset. Stop if: 3 * race + suspicion ≥ 4 
+
+Here, the stopping rule is dependent on race. This introduces a statistical relationship between race and suspicion. 
+
+2) How many of the total people are stopped? What is the percentage of stopping across the two races? 
+
+# Part 3: Use of force if stopped
+
+We imagine that if individuals were to be stopped, the use of force would also be racist, a function of race and not just suspicion. 
+1) Add new variable denoting use of force to the dataset. Force if: race + suspicion ≥ 3
+2) Of those who were stopped, what is the percent of force used? How does this differ across the two groups?
+
+# Part 4: Use of force
+
+1) From Part 3 and Part 3, identify who would be stopped and subjected to force?
+
+# Part 5: Calculate estimands
+
+We are interested in the effects of race. Here are six quantities of interest, all of which could be of substantive importance. Calculate each of them. 
+
+A. Effect of race on the probability of being stopped
+B. Effect of race on the use of force if you were to be stopped
+C. Effect of race on probability of experiencing force
+D. Effect of race on probability of experiencing force among those that are stopped
+E. The effect of race on the use of force if you were to stopped among those that are in fact stopped
+F. Probability that force used on a minority is due to race
+
+Finally, calculate the naive estimate. How does it differ from the above estimands?
+
+
+# Part 6
+
+Let’s take the same example but imagine that the use of force, given stopped, is even more racist. In particular now we will assume that force is never used on whites. 
+
+1) Calculate each of these estimands:
+
+A. Effect of race on the probability of being stopped
+B. Effect of race on the use of force if you were to be stopped
+C. Effect of race on probability of experiencing force
+D. Probability that force used on a minority is due to race
+
+2) How does the naive estimate compare with the estimands?
+3) For which quantities is the naive estimate an overestimate?
+
+
+# Answers
+
+```{r}
+library(tidyverse)
+library(dplyr)
+data = as.tibble(data)
+data = data %>%
+  mutate(stop = ifelse(3*group + suspicion >=4, 1,0))
+```
+
+
+```{r}
+data %>%
+  subset(stop = 1) %>%
+  group_by(group, stop) %>%
+  summarise(n=n())%>%
+  mutate(prop  = n/sum(n))
+```
+
+```{r}
+data = data %>%
+  mutate(force = ifelse(group + suspicion >=3, 1,0))
+```
+
+
+```{r}
+data %>%
+  subset(stop = 1) %>%
+  group_by(group, force) %>%
+  summarise(n=n())%>%
+  mutate(prop  = n/sum(n))
+```
+Answer - Part 5
+
+1 Effect of race on probability of being stopped (P = 4, 6, 8)	+60%
+
+2 Effect of race on use of force if you were to be stopped (P = 6)	+20%
+
+
+3 Effect of race on probability of experiencing force. We see in the “Force” table that race makes a difference on being stopped. So for two fifth of people: +40%	(P=6,8)/(P=7,9,6,8,10). Note that 7 would have experienced force had she been stopped. 
+
+
+4 Effect of race on probability of experiencing force among those that are stopped. 
+
+Here we are interested specifically in the effect of race among people who are, in fact, stopped. From the stopped table we see that these are persons 9, 4, 6 , 8, 10. Of these, from the “Force” table, we see that 6 and 8 experience force because of race. So, also 40%.
+
+
+5 Effect of race on use of force if you were to be stopped among those that are stopped. Consider those who are stopped (9,4,6,8 and 10). Of these, conditional on being stopped, only Person 4 would have had a different outcome. So 20%.
+
+6 Probability that force used on a minority is due to race. Here, we interested in the role of race specifically among Person 6, 8 and 10. Of this there is an effect of race on Person 6 and 8 but not on Person 10. So 67%. 
+
+Naive estimate from data: Share among stopped minorities that experience force (3 out of 4) to the share among stopped non minorities that experience force (1 out of 1), yielding 75% - 100% = - 25%
+
+Answer - Part 6
+
+Quantity	Value
+1 Effect of race on probability of being stopped 	+60%
+2 Effect of race on use of force if you were to be stopped 	+60%
+3 Effect of race on probability of experiencing force 	+60%
+4 Probability that force used on a minority is due to race	+100%
+
+
+A Naive estimate from data	+75%
+
+
+References: 
+
+1. https://macartan.github.io/i/notes/collider_estimands.html#, Macartan Humphreys Blog on Discrimination Estimands
+2. KNOX, D., LOWE, W., & MUMMOLO, J. (2020). Administrative Records Mask Racially Biased Policing. American Political Science Review, 114(3), 619-637. doi:10.1017/S0003055420000039
+
+
+
+
+
+
+
+
+
+
+
